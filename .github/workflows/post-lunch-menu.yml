@@ -1,0 +1,55 @@
+name: Mattermost Lunch Menu Notifier
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # Every weekday 11:00 KST (02:00 UTC)
+    - cron: '0 2 * * 1-5'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  post-lunch-menu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (with GitHub Packages auth)
+        run: npm install
+        env:
+          GH_PACKAGES_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+
+      - name: Fetch lunch menu and post to Mattermost
+        run: npm run post-lunch
+        env:
+          MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
+          RESTAURANT_ID: ${{ secrets.RESTAURANT_ID }}
+          MEAL_TIME_ID: ${{ secrets.MEAL_TIME_ID }}
+          RESTAURANT_NAME: '멀티캠퍼스'
+          WELSTORY_USERNAME: ${{ secrets.WELSTORY_USERNAME }}
+          WELSTORY_PASSWORD: ${{ secrets.WELSTORY_PASSWORD }}
+
+      # Commits images daily so GitHub doesn't disable the schedule trigger
+      # after 60 days without a commit.
+      - name: Commit menu images (keep schedule trigger alive)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -d images ]; then
+            git add images/
+          fi
+          if git diff --cached --quiet; then
+            echo "No image changes, skipping commit."
+          else
+            git commit -m "chore: update lunch menu images ($(date -u +%Y-%m-%d))"
+            git push
+          fi

@@ -1,0 +1,22 @@
+{
+  "name": "JOBOB",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "멀티캠퍼스 점심 식단을 매일 오전 11시에 Mattermost 채널로 전송하는 봇",
+  "scripts": {
+    "find-restaurant": "tsx find-restaurant.ts",
+    "post-lunch": "tsx post-lunch-menu.ts",
+    "test-menu": "tsx test-menu.ts"
+  },
+  "dependencies": {
+    "@pmh-only/welplan2-model": "latest",
+    "@pmh-only/welplan2-welstory-plus": "latest",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
