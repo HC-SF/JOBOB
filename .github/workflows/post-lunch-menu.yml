@@ -1,8 +1,6 @@
 name: Mattermost Lunch Menu Notifier
 
 on:
-  push:
-    branches: [master]
   schedule:
     # Every weekday 11:00 KST (02:00 UTC)
     - cron: '0 2 * * 1-5'
