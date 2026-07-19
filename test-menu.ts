@@ -226,7 +226,7 @@ async function main(): Promise<void> {
   console.log('Open it with a Markdown preview (e.g. in VSCode) to see it close to the real message.\n')
 
   console.log(`Note: this restaurant's RESTAURANT_ID=${restaurant.id}, MEAL_TIME_ID=${lunchTime.id}`)
-  console.log('Set these two values in GitHub Secrets to use them directly in post-lunch-menu.ts.')
+  console.log('Set these two values via `firebase functions:config:set` / params when deploying the Cloud Function.')
 }
 
 main().catch((err) => {

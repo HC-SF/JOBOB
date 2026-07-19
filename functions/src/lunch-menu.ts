@@ -1,26 +1,22 @@
 // Fetches today's Multicampus lunch menu via Welstory and posts it to Mattermost
-// via an Incoming Webhook. Runs daily via GitHub Actions.
+// via an Incoming Webhook.
 //
 // Incoming Webhooks can't upload files, so images are linked directly from
 // Welstory's CDN instead of being re-hosted on Mattermost.
 
-import 'dotenv/config'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 import type { Menu, Restaurant } from '@pmh-only/welplan2-model'
 import { WelstoryPlusClient } from '@pmh-only/welplan2-welstory-plus'
 
-// Overwritten daily and committed by CI: keeps the repo small while still
-// producing a daily diff, which keeps GitHub from disabling the schedule trigger.
-const IMAGES_DIR = path.join(process.cwd(), 'images')
-
-const RESTAURANT_ID = process.env.RESTAURANT_ID
-const RESTAURANT_NAME = process.env.RESTAURANT_NAME ?? '멀티캠퍼스'
-const MEAL_TIME_ID = process.env.MEAL_TIME_ID
-
-const MATTERMOST_WEBHOOK_URL = process.env.MATTERMOST_WEBHOOK_URL
-const MATTERMOST_USERNAME = process.env.MATTERMOST_USERNAME ?? '점심봇'
-const MATTERMOST_ICON_URL = process.env.MATTERMOST_ICON_URL
+export interface LunchMenuConfig {
+  restaurantId: string
+  restaurantName: string
+  mealTimeId: string
+  mattermostWebhookUrl: string
+  mattermostUsername?: string
+  mattermostIconUrl?: string
+  welstoryUsername?: string
+  welstoryPassword?: string
+}
 
 function todayYYYYMMDD(): string {
   const kstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
@@ -30,7 +26,7 @@ function todayYYYYMMDD(): string {
   return `${year}${month}${day}`
 }
 
-function isWeekend(): boolean {
+export function isWeekend(): boolean {
   const kstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
   const dayOfWeek = kstNow.getDay()
   return dayOfWeek === 0 || dayOfWeek === 6
@@ -117,59 +113,6 @@ function menuKey(menu: Menu): string | undefined {
   return menu.hallNo && menu.courseType ? `${menu.hallNo}-${menu.courseType}` : undefined
 }
 
-function sanitizeFilename(name: string): string {
-  return name.replace(/[\\/:*?"<>|]/g, '_').trim() || 'menu'
-}
-
-function extensionFromContentType(contentType: string | null): string {
-  switch (contentType) {
-    case 'image/jpeg':
-      return '.jpg'
-    case 'image/gif':
-      return '.gif'
-    case 'image/webp':
-      return '.webp'
-    case 'image/png':
-    default:
-      return '.png'
-  }
-}
-
-async function downloadImage(imageUrl: string): Promise<{ buffer: Buffer; contentType: string }> {
-  const response = await fetch(imageUrl)
-  if (!response.ok) {
-    throw new Error(`Failed to download image: ${response.status} ${imageUrl}`)
-  }
-  const contentType = response.headers.get('content-type') ?? 'image/png'
-  const buffer = Buffer.from(await response.arrayBuffer())
-  return { buffer, contentType }
-}
-
-// Saves a local copy of each course image purely so CI has something to commit
-// daily (see the workflow's "keep schedule trigger alive" step). The message
-// itself links directly to Welstory's CDN, so this has no effect on the post.
-async function saveMenuImagesLocally(menus: Menu[], courseLabels: Map<string, string>): Promise<void> {
-  // Clear stale files first so a course with no image today doesn't leave
-  // yesterday's photo sitting under its filename.
-  await rm(IMAGES_DIR, { recursive: true, force: true })
-  await mkdir(IMAGES_DIR, { recursive: true })
-
-  for (const menu of menus) {
-    if (!menu.imageUrl) continue
-
-    const key = menuKey(menu)
-    const title = (key ? courseLabels.get(key) : undefined) ?? menu.name
-
-    try {
-      const { buffer, contentType } = await downloadImage(menu.imageUrl)
-      const filename = `${sanitizeFilename(title)}${extensionFromContentType(contentType)}`
-      await writeFile(path.join(IMAGES_DIR, filename), buffer)
-    } catch (err) {
-      console.error(`Failed to save local copy of image for '${title}':`, err)
-    }
-  }
-}
-
 function escapeTableCell(text: string): string {
   return text.replace(/\|/g, '\\|')
 }
@@ -199,9 +142,14 @@ function totalsCell(menu: Menu): string {
 // Builds a markdown table: header row is the course label, then image, then
 // one row per side dish, then a totals row. Shorter courses get blank cells.
 // Images link directly to Welstory's CDN with Mattermost's `=WxH` size syntax.
-function formatMenuMessage(menus: Menu[], dateLabel: string, courseLabels: Map<string, string>): string {
+function formatMenuMessage(
+  menus: Menu[],
+  dateLabel: string,
+  courseLabels: Map<string, string>,
+  restaurantName: string
+): string {
   if (menus.length === 0) {
-    return `### 📅 ${dateLabel} ${RESTAURANT_NAME} 점심 식단\n\n오늘은 등록된 식단이 없습니다.`
+    return `### 📅 ${dateLabel} ${restaurantName} 점심 식단\n\n오늘은 등록된 식단이 없습니다.`
   }
 
   const titles = menus.map((menu) => {
@@ -225,7 +173,7 @@ function formatMenuMessage(menus: Menu[], dateLabel: string, courseLabels: Map<s
   const totalsRow = `| ${menus.map(totalsCell).join(' | ')} |`
 
   return [
-    `### 📅 ${dateLabel} ${RESTAURANT_NAME} 점심 식단`,
+    `### 📅 ${dateLabel} ${restaurantName} 점심 식단`,
     '',
     headerRow,
     separatorRow,
@@ -235,11 +183,16 @@ function formatMenuMessage(menus: Menu[], dateLabel: string, courseLabels: Map<s
   ].join('\n')
 }
 
-async function postToMattermost(message: string): Promise<void> {
-  const payload: Record<string, unknown> = { text: message, username: MATTERMOST_USERNAME }
-  if (MATTERMOST_ICON_URL) payload.icon_url = MATTERMOST_ICON_URL
+async function postToMattermost(
+  message: string,
+  webhookUrl: string,
+  username: string,
+  iconUrl: string | undefined
+): Promise<void> {
+  const payload: Record<string, unknown> = { text: message, username }
+  if (iconUrl) payload.icon_url = iconUrl
 
-  const response = await fetch(MATTERMOST_WEBHOOK_URL!, {
+  const response = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -251,49 +204,38 @@ async function postToMattermost(message: string): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
+export async function postLunchMenu(config: LunchMenuConfig): Promise<void> {
   if (isWeekend()) {
     console.log('Skipping: no menu on weekends')
     return
   }
 
-  if (!RESTAURANT_ID || !MEAL_TIME_ID) {
-    throw new Error(
-      'RESTAURANT_ID / MEAL_TIME_ID environment variables are required. Run find-restaurant.ts first to obtain them.'
-    )
-  }
-  if (!MATTERMOST_WEBHOOK_URL) {
-    throw new Error('MATTERMOST_WEBHOOK_URL environment variable is required.')
-  }
-
   const client = new WelstoryPlusClient({
-    username: process.env.WELSTORY_USERNAME,
-    password: process.env.WELSTORY_PASSWORD,
+    username: config.welstoryUsername,
+    password: config.welstoryPassword,
   })
 
   const restaurant: Restaurant = {
-    id: RESTAURANT_ID,
-    name: RESTAURANT_NAME,
+    id: config.restaurantId,
+    name: config.restaurantName,
     vendor: 'welstory',
   }
 
   await ensureRegistered(client, restaurant)
 
   const date = todayYYYYMMDD()
-  const menus = await client.getMenus(restaurant, date, MEAL_TIME_ID)
-  const enrichedMenus = await enrichMenusWithDetails(client, restaurant, date, MEAL_TIME_ID, menus)
-  const courseLabels = await fetchCourseLabels(client, restaurant, date, MEAL_TIME_ID)
-
-  await saveMenuImagesLocally(enrichedMenus, courseLabels)
+  const menus = await client.getMenus(restaurant, date, config.mealTimeId)
+  const enrichedMenus = await enrichMenusWithDetails(client, restaurant, date, config.mealTimeId, menus)
+  const courseLabels = await fetchCourseLabels(client, restaurant, date, config.mealTimeId)
 
   const dateLabel = `${date.slice(0, 4)}.${date.slice(4, 6)}.${date.slice(6, 8)}`
-  const message = formatMenuMessage(enrichedMenus, dateLabel, courseLabels)
+  const message = formatMenuMessage(enrichedMenus, dateLabel, courseLabels, config.restaurantName)
 
-  await postToMattermost(message)
+  await postToMattermost(
+    message,
+    config.mattermostWebhookUrl,
+    config.mattermostUsername ?? '점심봇',
+    config.mattermostIconUrl
+  )
   console.log('Message sent successfully')
 }
-
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})

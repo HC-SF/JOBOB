@@ -3,10 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "멀티캠퍼스 점심 식단을 매일 오전 11시에 Mattermost 채널로 전송하는 봇",
+  "description": "멀티캠퍼스 점심 식단을 매일 오전 Mattermost 채널로 전송하는 Firebase Cloud Function (functions/ 참고)",
   "scripts": {
     "find-restaurant": "tsx find-restaurant.ts",
-    "post-lunch": "tsx post-lunch-menu.ts",
     "test-menu": "tsx test-menu.ts"
   },
   "dependencies": {

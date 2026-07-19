@@ -1,3 +1,12 @@
 .env
 /node_modules
 /preview.md
+
+# functions/node_modules is intentionally committed (vendored): it contains
+# @pmh-only/* packages from a private GitHub Packages registry that Cloud
+# Build has no credentials to install during deploy. Update it locally with
+# `npm --prefix functions install` and commit the result before deploying.
+/functions/lib
+firebase-debug.log
+firebase-debug.*.log
+.firebase/
