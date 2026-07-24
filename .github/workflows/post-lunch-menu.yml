@@ -1,0 +1,33 @@
+name: Mattermost Lunch Menu Notifier
+
+on:
+  repository_dispatch:
+    types: [post-lunch-menu]
+  workflow_dispatch: {}
+
+jobs:
+  post-lunch-menu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (with GitHub Packages auth)
+        run: npm install
+        env:
+          GH_PACKAGES_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+
+      - name: Fetch lunch menu and post to Mattermost
+        run: npm run post-lunch
+        env:
+          MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
+          RESTAURANT_ID: ${{ secrets.RESTAURANT_ID }}
+          MEAL_TIME_ID: ${{ secrets.MEAL_TIME_ID }}
+          RESTAURANT_NAME: '멀티캠퍼스'
+          WELSTORY_USERNAME: ${{ secrets.WELSTORY_USERNAME }}
+          WELSTORY_PASSWORD: ${{ secrets.WELSTORY_PASSWORD }}

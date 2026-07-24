@@ -4,17 +4,23 @@
 
 Welstory에서 식단을 가져와 Mattermost Incoming Webhook으로 게시한다.
 
-## ⚠️ 알려진 문제: 클라우드에서 자동 실행 불가
+## 아키텍처: Firebase가 깨우고, GitHub Actions가 실행
 
-**Welstory가 Google Cloud IP 대역에서의 로그인을 차단**하는 것으로 확인됨. 로컬(가정용 IP)에서는 동일 계정으로 100% 로그인 성공, Google Cloud 기반 실행 환경에서는 100% 실패(`WelstoryAuthError: No Authorization header in login response`, HTTP 200이지만 인증 헤더 누락). 코드 문제가 아니라 Welstory 서버 측 IP 기반 차단으로 판단되며, 재시도로도 해결되지 않음을 확인함.
+두 가지 문제가 겹쳐서 지금의 2단 구조가 됐다.
 
-**현재 운영 방식**: `npm run post-lunch`로 로컬에서 수동 실행.
+- **GitHub Actions의 `schedule` 트리거는 신뢰할 수 없음**: 60일간 저장소에 커밋이 없으면 GitHub이 스케줄 트리거를 자동 비활성화한다. (과거엔 이걸 우회하려고 매일 이미지를 커밋하는 꼼수를 썼었음.)
+- **Firebase Cloud Functions에서 직접 실행하면 Welstory 로그인이 막힘**: Welstory가 Google Cloud IP 대역에서의 로그인을 차단한다. 로컬(가정용 IP)에서는 동일 계정으로 100% 성공, Cloud Functions에서는 100% 실패(`WelstoryAuthError: No Authorization header in login response`).
 
-서빙 방식(스케줄 자동화)은 별도로 결정 예정. 후보: 한국 IP 프록시/VPN 경유, 또는 클라우드가 아닌 환경(자체 서버, GitHub Actions self-hosted runner 등)에서의 스케줄 실행.
+그래서 역할을 분리했다:
+
+1. **Firebase Cloud Functions** (`functions/`) — `onSchedule`로 평일 09:00 KST에 깨어나서, GitHub REST API의 `repository_dispatch` 이벤트만 쏜다. 식단 조회/전송 로직은 전혀 갖고 있지 않다.
+2. **GitHub Actions** (`.github/workflows/post-lunch-menu.yml`) — `repository_dispatch` 이벤트를 받으면 그때 `npm run post-lunch`를 실행한다. GitHub 러너 IP는 Welstory에 차단되지 않으므로 실제 로그인/게시는 여기서 이뤄진다.
 
 ## 구조
 
-- `lunch-menu.ts` — 식단 조회부터 Mattermost 게시까지, 실행하면 바로 오늘의 식단을 전송하는 단일 스크립트
+- `lunch-menu.ts` — 식단 조회부터 Mattermost 게시까지, 실행하면 바로 오늘의 식단을 전송하는 단일 스크립트 (GitHub Actions에서 실행됨)
+- `functions/` — Firebase Cloud Functions. 스케줄에 맞춰 GitHub Actions workflow를 트리거만 하는 얇은 레이어
+- `.github/workflows/post-lunch-menu.yml` — `repository_dispatch`(및 수동 `workflow_dispatch`)로 트리거되는 워크플로우. `lunch-menu.ts`를 실행
 
 ## 환경변수
 
@@ -43,3 +49,33 @@ npm install
 ```bash
 npm run post-lunch   # 오늘의 식단을 Mattermost로 전송 (내부적으로 tsx lunch-menu.ts)
 ```
+
+## 배포 / 설정
+
+### GitHub Actions
+
+리포지토리 Settings → Secrets and variables → Actions에 다음 Secrets를 등록한다:
+
+```
+GH_PACKAGES_TOKEN
+MATTERMOST_WEBHOOK_URL
+RESTAURANT_ID
+MEAL_TIME_ID
+WELSTORY_USERNAME
+WELSTORY_PASSWORD
+```
+
+워크플로우는 `repository_dispatch`(`event_type: post-lunch-menu`) 또는 Actions 탭에서 수동(`workflow_dispatch`)으로만 실행된다. `schedule` 트리거는 없다 — 스케줄은 Firebase Functions가 담당한다.
+
+### Firebase Cloud Functions
+
+`functions/`는 GitHub API를 호출할 PAT 하나만 시크릿으로 필요하다. 대상 저장소에 대한 `contents: write` 권한(fine-grained PAT) 또는 `repo` 스코프(classic PAT)가 있어야 `dispatches` 엔드포인트를 호출할 수 있다.
+
+```bash
+cd functions
+npm install
+firebase functions:secrets:set GITHUB_DISPATCH_TOKEN
+firebase deploy --only functions
+```
+
+`.firebaserc`의 `REPLACE_WITH_YOUR_FIREBASE_PROJECT_ID`를 실제 Firebase 프로젝트 ID로 바꾸고, [functions/src/index.ts](functions/src/index.ts)의 `GITHUB_REPOSITORY` 상수가 대상 GitHub 저장소(`owner/repo`)를 가리키는지 확인한다.
