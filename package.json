@@ -3,10 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "멀티캠퍼스 점심 식단을 매일 오전 Mattermost 채널로 전송하는 Firebase Cloud Function (functions/ 참고)",
+  "description": "멀티캠퍼스 점심 식단을 매일 오전 Mattermost 채널로 전송하는 봇. Welstory가 Google Cloud IP를 차단해 로컬(또는 비-클라우드 egress)에서 수동/스케줄 실행 필요",
   "scripts": {
-    "find-restaurant": "tsx find-restaurant.ts",
-    "test-menu": "tsx test-menu.ts"
+    "post-lunch": "tsx lunch-menu.ts"
   },
   "dependencies": {
     "@pmh-only/welplan2-model": "latest",

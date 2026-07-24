@@ -1,13 +1,20 @@
 // Fetches today's Multicampus lunch menu via Welstory and posts it to Mattermost
-// via an Incoming Webhook.
+// via an Incoming Webhook. Run directly (`npm run post-lunch`) to send today's
+// menu using credentials from .env.
 //
 // Incoming Webhooks can't upload files, so images are linked directly from
 // Welstory's CDN instead of being re-hosted on Mattermost.
+//
+// Welstory blocks logins from Google Cloud IPs, so this must run from a
+// non-cloud egress IP (confirmed: identical credentials work from a
+// local/residential IP but fail with "No Authorization header in login
+// response" from Cloud Functions).
 
+import 'dotenv/config'
 import type { Menu, Restaurant } from '@pmh-only/welplan2-model'
 import { WelstoryPlusClient } from '@pmh-only/welplan2-welstory-plus'
 
-export interface LunchMenuConfig {
+interface LunchMenuConfig {
   restaurantId: string
   restaurantName: string
   mealTimeId: string
@@ -204,7 +211,7 @@ async function postToMattermost(
   }
 }
 
-export async function postLunchMenu(config: LunchMenuConfig): Promise<void> {
+async function postLunchMenu(config: LunchMenuConfig): Promise<void> {
   if (isWeekend()) {
     console.log('Skipping: no menu on weekends')
     return
@@ -239,3 +246,24 @@ export async function postLunchMenu(config: LunchMenuConfig): Promise<void> {
   )
   console.log('Message sent successfully')
 }
+
+const RESTAURANT_ID = process.env.RESTAURANT_ID
+const RESTAURANT_NAME = process.env.RESTAURANT_NAME ?? '멀티캠퍼스'
+const MEAL_TIME_ID = process.env.MEAL_TIME_ID
+const MATTERMOST_WEBHOOK_URL = process.env.MATTERMOST_WEBHOOK_URL
+
+if (!RESTAURANT_ID || !MEAL_TIME_ID) {
+  throw new Error('RESTAURANT_ID / MEAL_TIME_ID environment variables are required.')
+}
+if (!MATTERMOST_WEBHOOK_URL) {
+  throw new Error('MATTERMOST_WEBHOOK_URL environment variable is required.')
+}
+
+await postLunchMenu({
+  restaurantId: RESTAURANT_ID,
+  restaurantName: RESTAURANT_NAME,
+  mealTimeId: MEAL_TIME_ID,
+  mattermostWebhookUrl: MATTERMOST_WEBHOOK_URL,
+  welstoryUsername: process.env.WELSTORY_USERNAME,
+  welstoryPassword: process.env.WELSTORY_PASSWORD,
+})
